@@ -127,6 +127,7 @@ outx <- rast(nrows=allrows,
 bs <- writeStart(outx, filename=file.path(projdir, paste0(spp, run_name, "_perm.tif")),
                  datatype='INT1U', wopt=wopt)
 
+# This took ~45 hours for full state
 for(i in 1:bs$n) {
   iRow <- values(spatstack, row=bs$row[i], nrows=bs$nrows[i])
   subx <- procbloc_class(iRow, rf.fit)

@@ -1,3 +1,4 @@
+# Combining multiple window size outputs into a single output.
 library(dplyr)
 library(terra)
 
