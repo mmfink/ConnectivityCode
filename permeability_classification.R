@@ -3,7 +3,7 @@
 #
 # Michelle M. Fink, michelle.fink@colostate.edu
 # Colorado Natural Heritage Program, Colorado State University
-# Created 11/7/2023, last updated 11/13/2023
+# Created 11/7/2023, last updated 01/08/2024
 #
 # -----------------------------------------------------------------
 # Code licensed under the GNU General Public License version 3.
@@ -34,8 +34,8 @@ ncores <- 6
 ntrees <- 4200
 projdir <- "D:/GIS/Projects/CPW_Statewide_Habt"
 spp <- "Elk"
-run_name <- "Run5_Nov23"
-classSampNums <- 10000
+run_name <- "Run3_Jan24"
+classSampNums <- 5000
 training <- rast(file.path(projdir, "Elk_perm_training3.tif"))
 inputs <- fread("EnvInputs.csv")
 
@@ -52,32 +52,36 @@ outdt <- data.table(outvals)
 respdt <- cbind(trainpts$Elk_perm_training3, outdt)
 fwrite(respdt, file=file.path(projdir, paste0(spp, run_name, "_response.csv")))
 
+## if already done:
+respdt <- fread(file=file.path(projdir, paste0(spp, run_name, "_response.csv")))
+## - ##
+
 respdt <- setnames(respdt, c("V1"), c("Response"))
-chkdat <- numCorr(respdt[,2:7])
+varstouse <- as.character(inputs[use==1, label])
+
+chkdat <- numCorr(respdt[, ..varstouse])
 chkdat
 
-dat <- respdt[, c(1,2,3,4,6,7)]
-vnames <- names(dat[, 2:ncol(dat)])
+cdat <- c("Response", varstouse)
+dat <- respdt[, ..cdat]
+vnames <- varstouse
 
 # Tune RF -------------------------------------------------------------------
-sub0 <- dat %>% dplyr::filter(Response == 0) %>% sample_frac(0.11)
-sub1 <- dat %>% dplyr::filter(Response == 1) %>% sample_frac(0.11)
-sub2 <- dat %>% dplyr::filter(Response == 2) %>% sample_frac(0.11)
-sub3 <- dat %>% dplyr::filter(Response == 3) %>% sample_frac(0.11)
-sub4 <- dat %>% dplyr::filter(Response == 4) %>% sample_frac(0.11)
-sub5 <- dat %>% dplyr::filter(Response == 5) %>% sample_frac(0.11)
+sub1 <- dat %>% dplyr::filter(Response == 1) %>% sample_frac(0.1)
+sub2 <- dat %>% dplyr::filter(Response == 2) %>% sample_frac(0.1)
+sub3 <- dat %>% dplyr::filter(Response == 3) %>% sample_frac(0.1)
+sub4 <- dat %>% dplyr::filter(Response == 4) %>% sample_frac(0.1)
+sub5 <- dat %>% dplyr::filter(Response == 5) %>% sample_frac(0.1)
 
-subtune <- as.data.table(bind_rows(sub0, sub1, sub2, sub3, sub4, sub5))
+subtune <- as.data.table(bind_rows(sub1, sub2, sub3, sub4, sub5))
 
-x <- tuneRF(dat[, c(2:6)], y=dat[, Response],
-            ntreeTry = 101,
+x <- tuneRF(dat[, c(2:7)], y=as.factor(dat[, Response]),
+            ntreeTry = 151,
             stepFactor = 1.5,
             improve=0.01)
 mt <- x[x[,2] == min(x[,2]),1]
 
 # Run model -----------------------------------------------------------------
-# try with land cover as factor
-# NOPE: "Can not handle categorical predictors with more than 53 categories."
 
 treeSubs <- ntrees/ncores
 
@@ -91,7 +95,7 @@ rf.fit <- foreach(tree = rep(treeSubs,ncores),
                                   data=dat,
                                   importance=TRUE,
                                   ntree=tree,
-                                  mtry=2,
+                                  mtry=mt,
                                   replace = TRUE,
                                   norm.votes = TRUE)
                   }
@@ -105,11 +109,25 @@ saveRDS(rf.fit, file=file.path(projdir, paste0(spp, run_name, ".rds")))
 varImpPlot(rf.fit)
 rf.fit$confusion
 
-# Skip all that
+## Skip all that
 rf.fit <- readRDS(file.path(projdir, paste0(spp, run_name, ".rds")))
 vnames <- names(rf.fit$forest$ncat)
+## - ##
 
-# Spatial Prediction --------------------------------------------------------
+# Test Area Spatial Prediction ---------------------------------------------------
+testarea <- rast("D:/GIS/Projects/CPW_Statewide_Habt/LDIbase1_testarea.tif")
+testext <- ext(testarea)
+rasfiles <- inputs[label %in% vnames, raster]
+spatlist <- lapply(rasfiles, rast)
+names(spatlist) <- inputs[raster %in% rasfiles, label]
+spatstack <- rast(spatlist)
+teststack <- crop(spatstack, testext)
+testout <- predict(teststack, rf.fit, type='response',
+                   filename=file.path(projdir, paste0("test_", run_name, ".tif")),
+                   wopt=list(gdal=c("COMPRESS=LZW", "TFW=YES", "BIGTIFF=YES")))
+
+
+# Full Spatial Prediction --------------------------------------------------------
 rasfiles <- inputs[label %in% vnames, raster]
 spatlist <- lapply(rasfiles, rast)
 names(spatlist) <- inputs[raster %in% rasfiles, label]
@@ -118,7 +136,6 @@ allrows <- nrow(spatstack)
 allcols <- ncol(spatstack)
 #bs <- myblocksize(allrows)
 wopt=list(gdal=c("COMPRESS=LZW", "TFW=YES", "BIGTIFF=YES"))
-#rfmod <- stripRF(rf.fit) #nope no good :(
 
 outx <- rast(nrows=allrows,
              ncols=ncol(spatstack),
@@ -127,7 +144,6 @@ outx <- rast(nrows=allrows,
 bs <- writeStart(outx, filename=file.path(projdir, paste0(spp, run_name, "_perm.tif")),
                  datatype='INT1U', wopt=wopt)
 
-# This took ~45 hours for full state
 for(i in 1:bs$n) {
   iRow <- values(spatstack, row=bs$row[i], nrows=bs$nrows[i])
   subx <- procbloc_class(iRow, rf.fit)
