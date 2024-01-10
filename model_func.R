@@ -3,7 +3,7 @@
 #
 # Michelle M. Fink, michelle.fink@colostate.edu
 # Colorado Natural Heritage Program, Colorado State University
-# Created ages ago, last updated 11/08/2023
+# Created ages ago, last updated 01/10/2024
 #
 # -----------------------------------------------------------------
 # Code licensed under the GNU General Public License version 3.
@@ -22,6 +22,7 @@
 #############################################################################
 require(dplyr)
 require(data.table)
+library(ggplot2)
 library(terra)
 
 myextract <- function(inpts, inrow){ 
@@ -91,7 +92,7 @@ myblocksize <- function(totrow){
   return(blocktbl)
 }
 
-# Prediction functions to feed to workers
+# FIXME # Prediction functions to feed to workers
 procbloc_class <- function(iBlock, randfor){
   predValues <- predict(randfor, iBlock, type='response')
   classValues <- as.numeric(levels(predValues))[predValues]
@@ -99,17 +100,25 @@ procbloc_class <- function(iBlock, randfor){
   return(chunk)
 }
 
-procbloc_prob <- function(i, bs, satImage, randfor){
-  startrow <- bs$row[i]
-  numrows <- bs$nrows[i]
-  imageBlock <- values(satImage, row=startrow, nrows=numrows)
-  predProbs <- predict(randfor, imageBlock, type='prob')
-  maxProb <- round(apply(predProbs, 1, max) * 100)
-  chunk <- matrix(maxProb, nrow = numrows, byrow = T)
-  return(chunk)
-}
+classpal <- c("#C2523C", "#F2B60E", "#77ED00", "#1BAA7D", "#0B2C7A")
 
-stripRF <- function(rfmod){
-  rfmod$forest <- NULL
-  return(rfmod)
+plotRF <- function(rfOutput){
+  # https://stackoverflow.com/questions/39330728/plot-legend-random-forest-r
+  # Get OOB data from plot and coerce to data.table
+  oobData = as.data.table(plot(rfOutput))
+  
+  # Define trees as 1:ntree
+  oobData[, trees := .I]
+  
+  # Cast to long format
+  oobData2 = melt(oobData, id.vars = "trees")
+  setnames(oobData2, "value", "error")
+  
+  # Plot using ggplot
+  out <- ggplot(data = oobData2, aes(x = trees, y = error, color = variable)) + 
+    geom_line(linewidth=0.8) + theme_light() + labs(title="Out of Bag Error") +
+    scale_color_manual(values=c("#000000", classpal)) +
+    guides(color=guide_legend(title="Classes"))
+  
+  return(out)
 }
