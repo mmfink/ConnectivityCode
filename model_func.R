@@ -3,7 +3,7 @@
 #
 # Michelle M. Fink, michelle.fink@colostate.edu
 # Colorado Natural Heritage Program, Colorado State University
-# Created ages ago, last updated 01/10/2024
+# Created ages ago, last updated 01/17/2024
 #
 # -----------------------------------------------------------------
 # Code licensed under the GNU General Public License version 3.
@@ -105,7 +105,7 @@ classpal <- c("#C2523C", "#F2B60E", "#77ED00", "#1BAA7D", "#0B2C7A")
 plotRF <- function(rfOutput){
   # https://stackoverflow.com/questions/39330728/plot-legend-random-forest-r
   # Get OOB data from plot and coerce to data.table
-  oobData = as.data.table(plot(rfOutput))
+  oobData = as.data.table(plot(rfOutput, type="n"))
   
   # Define trees as 1:ntree
   oobData[, trees := .I]
@@ -121,4 +121,29 @@ plotRF <- function(rfOutput){
     guides(color=guide_legend(title="Classes"))
   
   return(out)
+}
+
+filterPts <- function(xy, dist){
+  # adapted from #https://stackoverflow.com/questions/22051141/spatial-filtering-by-proximity-in-r
+  # xy = terra SpatVector
+  # dist = minimum distance in meters for latlon, map units otherwise
+  d <- as.matrix(distance(xy))
+  diag(d) <- NA
+  close <- (d <= dist)
+  diag(close) <- NA
+  closePts <- which(close,arr.ind=T)
+  discard <- matrix(nrow=2,ncol=2)
+  if (nrow(closePts) > 0) {
+    while (nrow(closePts) > 0) {
+      if ((!paste(closePts[1,1],closePts[1,2],sep='_') %in% paste(discard[,1],discard[,2],sep='_')) & (!paste(closePts[1,2],closePts[1,1],sep='_') %in% paste(discard[,1],discard[,2],sep='_'))) {
+        discard <- rbind(discard, closePts[1,])
+        closePts <- closePts[-union(which(closePts[,1] == closePts[1,1]), which(closePts[,2] == closePts[1,1])),]
+      }
+    }
+    discard <- discard[complete.cases(discard),]
+    return(xy[-discard[,1],])
+  }
+  if (nrow(closePts) == 0) {
+    return(xy)
+  }
 }
