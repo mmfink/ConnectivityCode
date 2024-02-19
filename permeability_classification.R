@@ -3,7 +3,7 @@
 #
 # Michelle M. Fink, michelle.fink@colostate.edu
 # Colorado Natural Heritage Program, Colorado State University
-# Created 11/7/2023, last updated 02/06/2024
+# Created 11/7/2023, last updated 02/07/2024
 #
 # -----------------------------------------------------------------
 # Code licensed under the GNU General Public License version 3.
@@ -26,7 +26,6 @@ library(dplyr)
 library(randomForest)
 library(terra)
 library(foreach)
-library(doSNOW)
 
 source("model_func.R")
 
@@ -126,7 +125,7 @@ spatstack <- rast(spatlist)
 wopt=list(gdal=c("COMPRESS=LZW", "TFW=YES", "BIGTIFF=YES"))
 permout <- predict(spatstack, rf.fit, type="response", cores=ncores,
                    cpkgs=c("randomForest"),
-                   filename=file.path(projdir, paste0(run_name, ".tif")),
+                   filename=file.path(projdir, paste0(spp, run_name, ".tif")),
                    wopt=wopt)
 ## Took 3.5 hours
 
