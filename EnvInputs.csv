@@ -1,0 +1,12 @@
+raster,label,type,use
+H:/CPW_Statewide_Habt/landcover_rvsd.tif,LandCover,N,1
+H:/CPW_Statewide_Habt/SRR_300m.tif,SurfaceRelief,N,1
+H:/CPW_Statewide_Habt/SAR_smooth7x7.tif,SurfaceArea,N,1
+H:/CPW_Statewide_Habt/exposure.tif,Exposure,N,1
+H:/CPW_Statewide_Habt/CTI_Arcmap.tif,Wetness,N,1
+H:/CPW_Statewide_Habt/COMAP_legend.tif,LandOwner,C,0
+H:/CPW_Statewide_Habt/Phenology/TIN_17_22_mean.tif,NDVI_cumulative,N,1
+H:/CPW_Statewide_Habt/Phenology/AMP_17_22_mean.tif,NDVI_amp,N,0
+H:/CPW_Statewide_Habt/Phenology/DUR_17_22_mean.tif,Photosyn_days,N,1
+H:/CPW_Statewide_Habt/roads_weighted_density.tif,RoadDensity,N,0
+H:/CPW_Statewide_Habt/LDI_8_2023_asinput.tif,LDI,N,1
