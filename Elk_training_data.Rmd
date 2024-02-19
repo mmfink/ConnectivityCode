@@ -1,0 +1,152 @@
+---
+title: "Elk & Deer Connectivity"
+author: "Michelle M. Fink"
+date: "2024-02-13"
+output: 
+  html_notebook: 
+    toc: yes
+    highlight: tango
+    theme: readable
+    fig_width: 8
+    fig_height: 7
+  html_document: 
+    highlight: tango
+    theme: readable
+    fig_width: 7.5
+    fig_height: 7
+    df_print: kable
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(kableExtra)
+opts_chunk$set(echo = TRUE)
+```
+# Overview
+
+This notebook contains code used to explore the data available for training the permeability classification.  
+It's in various pieces and was used in conjunction with ArcPro (for visualization and reclassification) before bringing the resulting geotiffs back into R for the classification.  
+```{r initialize, echo=FALSE}
+library(data.table)
+library(lattice)
+library(ggplot2)
+library(terra)
+
+projdir <- "H:/CPW_Statewide_Habt"
+```
+
+## Initial classification.  
+Using percentile breaks.
+```{r quantiles1}
+train <- rast(file.path(projdir, "CPW_Data", "Elk_migs_by_DAU.tif"))
+traindf <- spatSample(train, size=50000, method="random", na.rm=TRUE)
+summary(traindf)
+plot(density(traindf$Weighted.UDs))
+```
+Various breaks were explored, e.g.:  
+```{r quantiles2}
+testbrks <- quantile(traindf$Weighted.UDs, probs=c(0.1,0.2,0.4,0.8,0.98))
+testbrks
+```
+Normally I assign 10 permeability categories, but for this process, 5 classes of permeability seems to be the maximum practical number of categories. That may have to be reduced to 3, but so far I have stuck with 5. Once breaks have been determined, reclassify the raw data to 1 (least travelled) to 5 (most travelled). By the nature of the data, there is no "impermeable" classification at this stage, it will have to be added *post-hoc*.
+
+**NOTE** It is *not* sufficient to just reclassify the data. We have been told that this data is generalized and covers more area than actual travel paths by the animals. Therefore, some additional steps need to be taken to make sure we're not erroneously classifying certain land (and dataset) features as more permeable than they are.  
+These steps were done in ArcPro, don't try to run the chunks from here.  
+
+First step is to mask out areas of open water. The **phenology inputs** are at a coarser resolution, and so have very blobby waterbodies. Using those as the mask (remember this is just for the training classification).  
+```{python arcpro1, eval=FALSE}
+elktraintmp = arcpy.sa.SetNull(
+    in_conditional_raster="DUR_17_22_mean.tif",
+    in_false_raster_or_constant="Reclass_Elk", # reclassification done in ArcPro
+    where_clause="VALUE = 1000"                # open water
+)
+```
+Next mask out other land cover coded as barriers. I haven't had luck nesting SetNull commands, so I do this separately.  
+```{python arcpro2, eval=FALSE}
+elktraintmp2 = arcpy.sa.SetNull(
+    in_conditional_raster="landcover_rvsd.tif",
+    in_false_raster_or_constant="elktraintmp",
+    where_clause="Value = 999"                 # barriers (high traffic highways, wildlife fencing, etc)
+)
+```
+Finally lower the permeability classification of areas that are recognized as 'near-barriers'. These are coded in the land cover as values of >= 200 to < 999, with the higher values being progressively less permeable.  
+```{python arcpro3, eval=FALSE}
+elk_perm_train = Con(("landcover_rvsd.tif" >= 300) & ("elktraintmp2" > 3), "elktraintmp2" - 3, Con(("landcover_rvsd.tif" >= 200) & ("landcover_rvsd.tif" < 300) & ("elktraintmp2" > 3), 3, "elktraintmp2"))
+```
+Save that as a .tif and use in `permeability_classification.R`  
+
+
+## More advanced classification
+
+**The Concern**: Alpine is not low-permeability, but the migration dataset has lower values at higher elevation. Therefore the classification results are not correct for Alpine (and other landscapes where there is less data).
+
+**Why:** Elk are forced to be concentrated in Winter Habitat, but once elk are finished migrating to summer range, they spread out and stay in the alpine and subalpine.
+
+**Exploration:** I created a stratified point sample over the **Elk_migs_byDAU.tif** dataset to look at elevation and/or latitudinal biases. (which I apparently did in ArcPro, because I don't see it in my R history)  
+
+```{r elevation1}
+indat <- fread(file.path(projdir, "ElkRun11Jan24_test.csv"))
+
+indat[NED <= 1600, eRange := "Plains"][(NED > 1600) & (NED <= 2300), eRange := "LowerMontane"]
+indat[(NED > 2300) & (NED <= 2800), eRange := "UpperMontane"]
+indat[(NED > 2800) & (NED <= 3500), eRange := "Subalpine"][NED > 3500, eRange := "Alpine"]
+
+fac <- c("Plains", "LowerMontane", "UpperMontane", "Subalpine", "Alpine")
+indat[, eRange := factor(eRange, levels=fac)]
+summary(indat)
+```
+*Elk_migs* = sampled values from Elk_migs_byDAU.tif  
+*NED* = elevation in meters  
+Total number of sample points = `r nrow(indat)`  
+*eRange* = Categorical elevation range. Ranges used:  
+``` {#elevation}
+Elevation ranges in CO
+                                 Feet            Meters
+---------------------------------------------------------
+Plains                         < 5,249            < 1,600
+Lower-Montane / Foothills   5,249 - 7,546       1,600 - 2,300
+Upper Montane               7,546 - 9,186       2,300 - 2,800
+Subalpine                   9,186 - 11,500      2,800 - 3,500
+Alpine                       > 11,500            > 3,500
+```
+
+**Samples by Elevation Range:**  
+```{r single_e_graph}
+e.rng <- ggplot(indat, aes(x=NED, y=Elk_migs))
+e.rng + geom_point(aes(color=eRange)) +
+  stat_smooth(se=FALSE, color="red") +
+  scale_color_brewer(palette="Set2") + 
+  labs(title="Elk migration values vs. Elevation", color="Elevation Range",
+       x="Elevation (m)")
+```
+Why yes, these are ghastly colors...  
+
+Values peak in the Upper Montane range.  
+Digging deeper, we can look at Elk_migs vs. Elevation conditioned upon both latitude and longitude:  
+```{r}
+indat[, X_UTM := cut_number(x, n=2)][, Y_UTM := cut_number(y, n=3)]
+```
+
+```{r facet_e_graph, fig.height=10}
+e.rng  + geom_point(aes(color=eRange)) +
+  stat_smooth(se=FALSE, color="red") +
+  scale_color_brewer(palette="Set2") + 
+  facet_grid(rows=vars(Y_UTM), 
+             cols=vars(X_UTM),
+             as.table=FALSE, labeller=label_both, margins=TRUE) +
+  labs(color="Elevation Range", x="Elevation (m)")
+```
+I don't like how the GAM smooth curves up at the edges, that isn't what's happening with the data. 
+But anyway, I wound up stratifying the data by 2 longitude breaks and 3 latitude breaks, and classified high elevation areas differently in each. Is was a messy and iterative process, see the MindMap. I'll have to write it out coherently soon, and will update the notebook then.     
+
+## Post-processing permeability layer
+**Skipping over all the classification runs**  
+Once you finally have a permeability layer you can move forward with, you need to make some *post-hoc* adjustments to add barriers and low permeability areas, as well as put in known large mammal under/over passes as highly permeable.  
+```{python arcpro4, eval=FALSE}
+env.mask = co_bnd.shp
+elk3feb_masked = SetNull(("landcover_rvsd.tif" == 114) | ("landcover_rvsd.tif" == 999), Con(("landcover_rvsd.tif" >= 300) & ("landcover_rvsd.tif" < 999), 0.5, "ElkRun3_Feb24.tif"))
+
+elk_Run3Feb24 = Con(IsNull("PermeabilityFactors_30m"), "elk3feb_masked", 5)
+```
+
