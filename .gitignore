@@ -49,3 +49,5 @@ po/*~
 rsconnect/
 
 *.Rproj
+
+.ipynb_checkpoints/
